@@ -8,6 +8,7 @@ jest.mock('tmp');
 jest.mock('fs');
 
 describe('Render task definition', () => {
+    const OLD_ENV = process.env
 
     beforeEach(() => {
         jest.clearAllMocks();
@@ -18,6 +19,8 @@ describe('Render task definition', () => {
             .mockReturnValueOnce('web')                  // container-name
             .mockReturnValueOnce('nginx:latest');        // image
 
+        jest.resetModules();
+        process.env = { ...OLD_ENV };
         process.env = Object.assign(process.env, { GITHUB_WORKSPACE: __dirname });
         process.env = Object.assign(process.env, { RUNNER_TEMP: '/tmp' });
 
@@ -107,6 +110,93 @@ describe('Render task definition', () => {
         );
         expect(core.setOutput).toHaveBeenNthCalledWith(1, 'task-definition', 'new-task-def-file-name');
     });
+
+    test('renders a task definiton with given environment variables', async () => {
+        process.env = Object.assign(process.env, { TASK_APP_DEBUG: "false" });
+        process.env = Object.assign(process.env, { GIHTUB_ACTIONS: "true" });
+
+        core.getInput = jest
+            .fn()
+            .mockReturnValueOnce('task-definition.json') // task-definition
+            .mockReturnValueOnce('web')                  // container-name
+            .mockReturnValueOnce('nginx:latest')         // image
+            .mockReturnValueOnce('TASK_');               // env-prefix
+
+        await run();
+
+        expect(tmp.fileSync).toHaveBeenNthCalledWith(1, {
+            dir: '/tmp',
+            prefix: 'task-definition-',
+            postfix: '.json',
+            keep: true,
+            discardDescriptor: true
+        });
+        expect(fs.writeFileSync).toHaveBeenNthCalledWith(1, 'new-task-def-file-name',
+            JSON.stringify({
+                family: 'task-def-family',
+                containerDefinitions: [
+                    {
+                        name: "web",
+                        image: "nginx:latest",
+                        environment: [
+                            {
+                                name: "APP_DEBUG",
+                                value: "false"
+                            }
+                        ]
+                    },
+                    {
+                        name: "sidecar",
+                        image: "hello"
+                    }
+                ]
+            }, null, 2)
+        );
+        expect(core.setOutput).toHaveBeenNthCalledWith(1, 'task-definition', 'new-task-def-file-name');
+    })
+
+    test('renders a task definiton with given port mapping', async () => {
+        core.getInput = jest
+            .fn()
+            .mockReturnValueOnce('task-definition.json') // task-definition
+            .mockReturnValueOnce('web')                  // container-name
+            .mockReturnValueOnce('nginx:latest')         // image
+            .mockReturnValueOnce('TASK_')                // env-prefix
+            .mockReturnValueOnce('3000');          // portmapping
+
+        await run();
+
+        expect(tmp.fileSync).toHaveBeenNthCalledWith(1, {
+            dir: '/tmp',
+            prefix: 'task-definition-',
+            postfix: '.json',
+            keep: true,
+            discardDescriptor: true
+        });
+        expect(fs.writeFileSync).toHaveBeenNthCalledWith(1, 'new-task-def-file-name',
+            JSON.stringify({
+                family: 'task-def-family',
+                containerDefinitions: [
+                    {
+                        name: "web",
+                        image: "nginx:latest",
+                        portMappings: [
+                            {
+                                containerPort: "3000",
+                                hostPort: "0",
+                                protocol: "tcp"
+                            }
+                        ]
+                    },
+                    {
+                      name: "sidecar",
+                      image: "hello"
+                  }
+                ]
+            }, null, 2)
+        );
+        expect(core.setOutput).toHaveBeenNthCalledWith(1, 'task-definition', 'new-task-def-file-name');
+    })
 
     test('error returned for missing task definition file', async () => {
         fs.existsSync.mockReturnValue(false);
