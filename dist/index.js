@@ -1083,6 +1083,8 @@ async function run() {
     const taskDefinitionFile = core.getInput('task-definition', { required: true });
     const containerName = core.getInput('container-name', { required: true });
     const imageURI = core.getInput('image', { required: true });
+    const envPrefix = core.getInput('env-prefix', { required: false });
+    const portMapping = core.getInput('port-mapping', { required: false });
 
     // Parse the task definition
     const taskDefPath = path.isAbsolute(taskDefinitionFile) ?
@@ -1105,6 +1107,30 @@ async function run() {
     }
     containerDef.image = imageURI;
 
+    // Optionally add given environment variables
+    if (envPrefix) {
+      const containerEnv = Object.entries(process.env)
+            .filter(([name]) => name.startsWith(envPrefix, 0))
+            .map(([name, value]) => ({
+                name: name.substring(envPrefix.length),
+                value
+            }));
+      if (containerEnv.length > 0) {
+        containerDef.environment = (containerDef.environment || []).concat(containerEnv);
+      }
+    }
+
+    // Optionally modify port mapping
+    if (portMapping) {
+      let portMappingParts = portMapping.split(':');
+      containerDef.portMappings = containerDef.portMappings || [];
+      containerDef.portMappings.push({
+        containerPort: portMappingParts[0],
+        hostPort: portMappingParts[1] || 0,
+        protocol: portMappingParts[2] || 'tcp'
+      });
+    }
+
     // Write out a new task definition file
     var updatedTaskDefFile = tmp.fileSync({
       dir: process.env.RUNNER_TEMP,
@@ -1114,6 +1140,7 @@ async function run() {
       discardDescriptor: true
     });
     const newTaskDefContents = JSON.stringify(taskDefContents, null, 2);
+
     fs.writeFileSync(updatedTaskDefFile.name, newTaskDefContents);
     core.setOutput('task-definition', updatedTaskDefFile.name);
   }
